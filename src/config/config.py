@@ -90,7 +90,7 @@ cfg.task_arg.sample_on_mask = False
 # -----------------------------------------------------------------------------
 cfg.train = CN()
 cfg.train.epoch = 10000
-cfg.train.num_workers = 8
+cfg.train.num_workers = 0 #modified
 cfg.train.collator = "default"
 cfg.train.batch_sampler = "default"
 cfg.train.sampler_meta = CN({})
