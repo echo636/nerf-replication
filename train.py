@@ -16,9 +16,11 @@ from src.utils.net_utils import (
     load_pretrain,
 )
 from src.evaluators import make_evaluator
+from torch.utils.tensorboard import SummaryWriter
 import torch
 import torch.distributed as dist
 import os
+import ipdb
 
 torch.autograd.set_detect_anomaly(True)
 
@@ -55,6 +57,11 @@ def train(cfg, network):
 
     set_lr_scheduler(cfg, scheduler)
 
+    #ipdb.set_trace()
+    log_dir = os.path.join('logs', cfg.exp_name) 
+    writer = SummaryWriter(log_dir)
+    #ipdb.set_trace()
+
     for epoch in range(begin_epoch, cfg.train.epoch):
         recorder.epoch = epoch
         if cfg.distributed:
@@ -62,7 +69,7 @@ def train(cfg, network):
 
         train_loader.dataset.epoch = epoch
 
-        trainer.train(epoch, train_loader, optimizer, recorder)
+        trainer.train(epoch, train_loader, optimizer, recorder, writer)
         scheduler.step()
 
         if (epoch + 1) % cfg.save_ep == 0 and cfg.local_rank == 0:
@@ -82,7 +89,9 @@ def train(cfg, network):
             )
 
         if (epoch + 1) % cfg.eval_ep == 0 and cfg.local_rank == 0:
-            trainer.val(epoch, val_loader, evaluator, recorder)
+            trainer.val(epoch, val_loader, evaluator, recorder, writer)
+
+    writer.close()
 
     return network
 

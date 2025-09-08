@@ -40,7 +40,7 @@ class Trainer(object):
                 batch[k] = batch[k].to(self.device)
         return batch
 
-    def train(self, epoch, data_loader, optimizer, recorder):
+    def train(self, epoch, data_loader, optimizer, recorder, writer):
         max_iter = len(data_loader)
         self.network.train()
         end = time.time()
@@ -50,7 +50,7 @@ class Trainer(object):
 
             batch = to_cuda(batch, self.device)
             batch["step"] = self.global_step
-            output, loss, loss_stats, image_stats = self.network(batch)
+            output, loss, loss_stats, image_stats = self.network(batch, writer=writer, global_step=self.global_step)
 
             # training stage: loss; optimizer; scheduler
             loss = loss.mean()
@@ -58,6 +58,8 @@ class Trainer(object):
             loss.backward()
             torch.nn.utils.clip_grad_value_(self.network.parameters(), 40)
             optimizer.step()
+
+            writer.add_scalar('Learning_Rate', optimizer.param_groups[0]['lr'], self.global_step)
 
             if cfg.local_rank > 0:
                 continue
@@ -93,7 +95,7 @@ class Trainer(object):
                 recorder.update_image_stats(image_stats)
                 recorder.record("train")
 
-    def val(self, epoch, data_loader, evaluator=None, recorder=None):
+    def val(self, epoch, data_loader, evaluator=None, recorder=None, writer=None):
         self.network.eval()
         torch.cuda.empty_cache()
         val_loss_stats = {}
@@ -105,7 +107,7 @@ class Trainer(object):
             with torch.no_grad():
                 output, loss, loss_stats, _ = self.network(batch)
                 if evaluator is not None:
-                    image_stats_ = evaluator.evaluate(output, batch)
+                    image_stats_ = evaluator.evaluate(output, batch, writer, epoch)
                     if image_stats_ is not None:
                         image_stats.update(image_stats_)
 
@@ -121,7 +123,7 @@ class Trainer(object):
         print(loss_state)
 
         if evaluator is not None:
-            result = evaluator.summarize()
+            result = evaluator.summarize(writer, epoch)
             val_loss_stats.update(result)
 
         if recorder:

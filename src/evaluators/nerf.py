@@ -44,7 +44,7 @@ class Evaluator:
         #ipdb.set_trace()
         return ssim[0]
 
-    def evaluate(self, output, batch):
+    def evaluate(self, output, batch, writer, epoch):
         """
         Write your codes here.
         """
@@ -66,7 +66,9 @@ class Evaluator:
         self.psnr.append(psnr)
         self.ssim.append(ssim)
 
-    def summarize(self):
+        writer.add_scalar(f'PSNR/val_image_{i}', psnr, epoch)
+
+    def summarize(self, writer, epoch):
         """
         Write your codes here.
         """
@@ -86,5 +88,6 @@ class Evaluator:
             json.dump(summary_data, f, indent=4)
         
         print(f"\nSummary saved to {summary_path}")
-        
+        writer.add_scalar('PSNR/validation_average', mean_psnr, epoch)
+        writer.add_scalar('SSIM/validation_average', mean_ssim, epoch)
         return {'psnr': mean_psnr, 'ssim': mean_ssim}

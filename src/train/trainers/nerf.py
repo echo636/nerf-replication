@@ -12,7 +12,7 @@ class NetworkWrapper(nn.Module):
         # add metrics here
         self.loss_fn = nn.MSELoss()
 
-    def forward(self, batch):
+    def forward(self, batch, writer=None, global_step=None): #增加参数，用于TensorBoard可视化
         """
         Write your codes here.
         """
@@ -47,4 +47,13 @@ class NetworkWrapper(nn.Module):
             'psnr': psnr
         }
         
+        if writer is not None:
+            writer.add_scalar('Loss/total', loss_stats['total_loss'].item(), global_step)
+            writer.add_scalar('Loss/coarse', loss_stats['loss_c'].item(), global_step)
+            if 'loss_f' in loss_stats:
+                writer.add_scalar('Loss/fine', loss_stats['loss_f'].item(), global_step)
+            
+            #记录训练时的PSNR
+            writer.add_scalar('PSNR/train', image_stats['psnr'].item(), global_step)
+            
         return output, loss, loss_stats, image_stats
