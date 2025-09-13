@@ -50,7 +50,7 @@ class Trainer(object):
 
             batch = to_cuda(batch, self.device)
             batch["step"] = self.global_step
-            output, loss, loss_stats, image_stats = self.network(batch)
+            output, loss, loss_stats = self.network(batch)
 
             # training stage: loss; optimizer; scheduler
             loss = loss.mean()
@@ -62,7 +62,7 @@ class Trainer(object):
             if cfg.local_rank > 0:
                 continue
 
-            # data recording stage: loss_stats, time, image_stats
+            # data recording stage: loss_stats, time
             recorder.step += 1
 
             loss_stats = self.reduce_loss_stats(loss_stats)
@@ -90,7 +90,7 @@ class Trainer(object):
                 print(training_state)
 
                 # record loss_stats and image_dict
-                recorder.update_image_stats(image_stats)
+                #recorder.update_image_stats(image_stats)
                 recorder.record("train")
 
     def val(self, epoch, data_loader, evaluator=None, recorder=None):

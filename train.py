@@ -124,8 +124,6 @@ def main():
     if not args.test and not cfg.resume:
         print("Manually initializing the bias of alpha_linear layers for training from scratch...")
 
-        # PyTorch的DDP(DistributedDataParallel)会把模型包装起来
-        # 所以我们需要通过 .module 属性来访问原始模型
         model_to_init = network.module if cfg.distributed else network
         
         # 手动初始化 coarse model 的 alpha_linear 偏置

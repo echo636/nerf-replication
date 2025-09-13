@@ -57,9 +57,11 @@ class Evaluator:
         img_gt_flat = img_gt_batched.squeeze(0)
         #ipdb.set_trace()
         H, W = batch['H'].item(), batch['W'].item()
+        #reshape成图片的形状
         img_pred = img_pred_flat.reshape(H, W, 3)
         img_gt = img_gt_flat.reshape(H, W, 3)
         psnr = self.psnr_metric(img_pred, img_gt)
+        #把真实图片也转成0-255的形式，与预测图片对应
         img_gt = (img_gt * 255).astype(np.uint8)
         ssim = self.ssim_metric(img_pred, img_gt, batch, i, 100)  #硬编码，后续要修改
 

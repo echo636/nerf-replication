@@ -37,14 +37,15 @@ class NetworkWrapper(nn.Module):
 
         loss = total_loss
 
-        with torch.no_grad():
-            pred_rgb = ret.get('rgb_map_f', ret['rgb_map_c'])
-            #ipdb.set_trace()
-            mse = torch.mean((pred_rgb - gt_rgb) ** 2)
-            psnr = -10. * torch.log10(mse)
+        #先不在这里计算psnr了，在evaluator里算
+        # with torch.no_grad():
+        #     pred_rgb = ret.get('rgb_map_f', ret['rgb_map_c'])
+        #     #ipdb.set_trace()
+        #     mse = torch.mean((pred_rgb - gt_rgb) ** 2)
+        #     psnr = -10. * torch.log10(mse + 1e-6)
 
-        image_stats = {
-            'psnr': psnr
-        }
+        # image_stats = {
+        #     'psnr': psnr
+        # }
         
-        return output, loss, loss_stats, image_stats
+        return output, loss, loss_stats#, image_stats

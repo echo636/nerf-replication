@@ -2,8 +2,6 @@ from src.config import cfg, args
 import numpy as np
 import os
 
-
-### SCRIPTS BEGINING ###
 def run_dataset():
     import tqdm
     from src.datasets import make_data_loader

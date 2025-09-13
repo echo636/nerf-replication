@@ -12,20 +12,21 @@ from src.config import cfg
 class Dataset(data.Dataset):
     def get_rays(self, H, W, focal, c2w):
         """Get ray origins, directions from a pinhole camera."""
+
         i, j = torch.meshgrid(torch.arange(W, dtype=torch.float32),
                               torch.arange(H, dtype=torch.float32),
                               indexing='xy')
         i, j = i.to(c2w.device), j.to(c2w.device)
         
+        #计算光线方向在相机坐标系下的表示
         dirs = torch.stack([(i - W * 0.5) / focal,
                             -(j - H * 0.5) / focal,
                             -torch.ones_like(i)], -1)
         
-        # Rotate ray directions from camera frame to the world frame
-        # (c2w[:3, :3] @ dirs[..., None]).squeeze(-1) 是正确的矩阵向量乘法
+        #转换光线方向到世界坐标系
         rays_d = (c2w[:3, :3] @ dirs[..., None]).squeeze(-1)
         
-        # Translate camera frame's origin to the world frame. It is the origin of all rays.
+        #计算光线的原点
         rays_o = c2w[:3, 3].expand(rays_d.shape)
         
         return rays_o, rays_d
@@ -56,18 +57,20 @@ class Dataset(data.Dataset):
             meta = json.load(f)
 
         frames = meta['frames']
+        #可以通过 cams 参数来选择特定的图像进行训练或者测试
         if self.cams is not None:
             start, stop, step = self.cams
             if stop == -1:
                 stop = len(frames) 
             frames = frames[start:stop:step]  
 
-        # Calculate scaled dimensions
+        #根据 input_ratio 调整图像的分辨率
         self.H = int(self.H_orig * self.input_ratio)
         self.W = int(self.W_orig * self.input_ratio)
         
         camera_angle_x = float(meta['camera_angle_x'])
-        # Focal length calculation should use original W
+        #计算相机的焦距
+        #focal = 0.5 * W / tan(0.5 * camera_angle_x)
         focal_orig = .5 * self.W_orig / np.tan(.5 * camera_angle_x)
         self.focal = focal_orig * self.input_ratio
 
@@ -75,6 +78,7 @@ class Dataset(data.Dataset):
         all_rays_d = []
         self.rgbs = []
 
+        #遍历所有图像，读取图像和相机位姿，并计算光线的原点和方向
         for frame in frames:
             path = os.path.join(self.data_root, cfg.scene, frame['file_path'] + '.png')
             img = imageio.imread(path)
@@ -82,20 +86,22 @@ class Dataset(data.Dataset):
             if self.input_ratio != 1.0:
                 img = cv2.resize(img, (self.W, self.H), interpolation=cv2.INTER_AREA)
             
+            #归一化图像到 [0, 1] 范围
             img = (np.array(img) / 255.).astype(np.float32)
-            if img.shape[-1] == 4: # Handle RGBA
+            #处理 RGBA 图像
+            if img.shape[-1] == 4: 
                 img = img[..., :3] * img[..., -1:] + (1. - img[..., -1:])
 
             self.rgbs.append(torch.from_numpy(img))
 
             pose = torch.tensor(frame['transform_matrix'], dtype=torch.float32)
 
-            #pose[:3, 1:3] *= -1 # Equivalent to [x, -y, -z] for columns y and z
-
+            #计算光线的原点和方向
             rays_o, rays_d = self.get_rays(self.H, self.W, self.focal, pose)
             all_rays_o.append(rays_o)
             all_rays_d.append(rays_d)
 
+        #将所有图像的光线和 RGB 值连接在一起，形成大的张量
         self.rays_o = torch.cat([r.view(-1, 3) for r in all_rays_o], 0)
         self.rays_d = torch.cat([r.view(-1, 3) for r in all_rays_d], 0)
         self.rays = torch.cat([self.rays_o, self.rays_d], 1) # Shape [N_total_rays, 6]
@@ -114,6 +120,7 @@ class Dataset(data.Dataset):
         """
         Write your codes here.
         """
+
         if self.split == 'train':
             num_rays = self.rays.shape[0]
             rand_indices = torch.randint(0, num_rays, (self.batch_size,))
@@ -128,9 +135,10 @@ class Dataset(data.Dataset):
             end = start + pixels_per_image
             batch_rays = self.rays[start:end]
             batch_rgbs = self.rgbs[start:end]
-
+            #为了评估的方便，返回 H, W, focal
             ret = {'rays': batch_rays, 'rgbs': batch_rgbs, 'H': self.H, 'W': self.W, 'focal': self.focal}
         
+        #near和far更好的方法是放在cfg里
         ret['near'] = np.float32(cfg.task_arg.near)
         ret['far'] = np.float32(cfg.task_arg.far)
         ret['i'] = index
@@ -151,6 +159,8 @@ class Dataset(data.Dataset):
         Write your codes here.
         """
         if self.split == 'train':
+            #返回一个很大的数，保证每个 epoch 都能看到足够多的随机光线
             return 1000000
         else:
+            #测试时返回图像的数量
             return self.rays.shape[0] // (self.H * self.W)
