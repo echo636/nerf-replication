@@ -5,7 +5,8 @@ import tqdm
 from torch.nn.parallel import DistributedDataParallel
 from src.config import cfg
 from src.utils.data_utils import to_cuda
-
+import numpy as np
+from src.evaluators import make_evaluator
 
 class Trainer(object):
     def __init__(self, network):
@@ -23,6 +24,7 @@ class Trainer(object):
         self.local_rank = cfg.local_rank
         self.device = device
         self.global_step = 0
+        self.evaluator = make_evaluator(cfg)
 
     def reduce_loss_stats(self, loss_stats):
         reduced_losses = {k: torch.mean(v) for k, v in loss_stats.items()}
@@ -103,7 +105,7 @@ class Trainer(object):
             batch = to_cuda(batch, self.device)
             batch["step"] = recorder.step
             with torch.no_grad():
-                output, loss, loss_stats, _ = self.network(batch)
+                output, loss, loss_stats = self.network(batch)
                 if evaluator is not None:
                     image_stats_ = evaluator.evaluate(output, batch)
                     if image_stats_ is not None:

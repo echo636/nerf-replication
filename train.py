@@ -120,30 +120,6 @@ def main():
         synchronize()
 
     network = make_network(cfg)
-
-    if not args.test and not cfg.resume:
-        print("Manually initializing the bias of alpha_linear layers for training from scratch...")
-
-        model_to_init = network.module if cfg.distributed else network
-        
-        # 手动初始化 coarse model 的 alpha_linear 偏置
-        with torch.no_grad():
-            if hasattr(model_to_init.model, 'alpha_linear'):
-                model_to_init.model.alpha_linear.bias.fill_(0.1)
-                print("  - Coarse model's alpha_linear.bias initialized to 0.1")
-            else:
-                print("  - Coarse model may not use viewdirs, alpha_linear layer not found.")
-
-        # 手动初始化 fine model 的 alpha_linear 偏置
-        with torch.no_grad():
-            if hasattr(model_to_init.model_fine, 'alpha_linear'):
-                model_to_init.model_fine.alpha_linear.bias.fill_(0.1)
-                print("  - Fine model's alpha_linear.bias initialized to 0.1")
-            else:
-                print("  - Fine model may not use viewdirs, alpha_linear layer not found.")
-        
-        print("Custom initialization finished.")
-
         
     if args.test:
         test(cfg, network)

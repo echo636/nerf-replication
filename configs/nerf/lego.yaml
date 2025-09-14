@@ -82,6 +82,6 @@ eval:
 
 ep_iter: 500 # number of iterations in each epoch
 save_ep: 40
-eval_ep: 40 # 20000 iterations
+eval_ep: 10 # 20000 iterations
 save_latest_ep: 10 # 5000 iterations
 log_interval: 10
