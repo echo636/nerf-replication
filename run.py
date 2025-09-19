@@ -61,6 +61,11 @@ def run_evaluate():
     evaluator = make_evaluator(cfg)
     renderer = make_renderer(cfg, network)
     net_time = []
+    if cfg.task_arg.get('accelerated_renderer', False):
+        config_name = os.path.splitext(os.path.basename(args.cfg_file))[0]
+        grid_path = os.path.join('logs', config_name, 'occupancy_grid.pt')
+        renderer.load_occupancy_grid(grid_path)
+
     for batch in tqdm.tqdm(data_loader):
         for k in batch:
             if k != "meta":
@@ -68,7 +73,7 @@ def run_evaluate():
         with torch.no_grad():
             torch.cuda.synchronize()
             start_time = time.time()
-            output = renderer.render(batch)
+            output = renderer.render_accelerated(batch)
             torch.cuda.synchronize()
             end_time = time.time()
         net_time.append(end_time - start_time)

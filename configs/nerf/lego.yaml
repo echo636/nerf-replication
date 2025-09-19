@@ -30,6 +30,14 @@ task_arg:
   near: 2. # near plane distance
   far: 6. # far plane distance
 
+  occupancy_grid_res: 128
+  occupancy_grid_threshold: 1.0
+  occupancy_grid_batch_size: 4096
+
+  accelerated_renderer: True
+  render_step_size: 0.005
+  transmittance_threshold: 1.e-4
+
 network:
   nerf:
     W: 256 # width of network
@@ -52,14 +60,16 @@ train_dataset:
   cams: [0, -1, 1] # input cameras, you can use this variable to select training images
   H: 800
   W: 800
+  scene_bbox: [[-1.5, -1.5, -1.5], [1.5, 1.5, 1.5]]
 
 test_dataset:
   data_root: "data/nerf_synthetic"
   split: "test"
   input_ratio: 1.
-  cams: [0, -1, 100]
+  cams: [0, -1, 200]
   H: 800
   W: 800
+  scene_bbox: [[-1.5, -1.5, -1.5], [1.5, 1.5, 1.5]]
 
 train:
   single_view: False

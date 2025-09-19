@@ -2,7 +2,8 @@ import numpy as np
 import torch
 from src.config import cfg
 import ipdb
-
+import time
+import os
 
 class Renderer:
     def __init__(self, net):
@@ -10,6 +11,10 @@ class Renderer:
         Write your codes here.
         """
         self.net = net
+        self.occupancy_grid = None
+        self.scene_bbox = None
+        self.resolution = None
+        self.voxel_size = None
         
     #体渲染计算函数
     def raw2outputs(self, raw, z_vals, rays_d, raw_noise_std=0, white_bkgd=False):
@@ -133,6 +138,7 @@ class Renderer:
         """
         Write your codes here.
         """
+        start = time.time()
         #ipdb.set_trace()
         rays = batch['rays']
     
@@ -155,7 +161,7 @@ class Renderer:
             rays_chunk = rays_flat[i:i+chunk]
             ray_o, ray_d = rays_chunk[..., 0:3], rays_chunk[..., 3:6]
             N_rays = ray_o.shape[0]
-            #
+            
             N_samples = cfg.task_arg.N_samples
             
             #生成线性采样点
@@ -236,5 +242,117 @@ class Renderer:
         for k, v in all_ret.items():
             all_ret[k] = torch.cat(v, 0)
 
+        end = time.time()
+        print(f"Render time: {end - start:.4f} seconds")
         return all_ret
 
+    def load_occupancy_grid(self, grid_path):
+        if not os.path.exists(grid_path):
+            print(f"Occupancy grid file not found: {grid_path}, run in slow mode.")
+            return
+
+        print(f"Loading occupancy grid from {grid_path}...")
+        self.occupancy_grid = torch.load(grid_path).cuda()
+        self.grid_resolution = torch.tensor(self.occupancy_grid.shape, device='cuda')
+        self.scene_bbox = torch.tensor(cfg.train_dataset.scene_bbox, device='cuda', dtype=torch.float32)
+        self.voxel_size = (self.scene_bbox[1] - self.scene_bbox[0]) / self.grid_resolution
+        print("Occupancy grid loaded and ready for accelerated rendering.")
+
+    def world_to_grid_indices(self, points):
+        points = torch.clamp(points, self.scene_bbox[0], self.scene_bbox[1])
+        normalized_pts = (points - self.scene_bbox[0]) / (self.scene_bbox[1] - self.scene_bbox[0])
+        indices = (normalized_pts * (self.grid_resolution - 1)).long()
+        return indices
+    
+    # 用ESS和ERT加速渲染
+    def render_accelerated(self, batch):
+        if self.occupancy_grid is None:
+            print("Occupancy grid not loaded, running in slow mode.")
+            return self.render(batch)
+        
+        starter = torch.cuda.Event(enable_timing=True)
+        ender = torch.cuda.Event(enable_timing=True)
+        starter.record()
+
+        rays = batch['rays']
+        if rays.ndim == 3:
+            B, N, C = rays.shape
+            rays_flat = rays.reshape(B * N, C)
+        else:
+            rays_flat = rays
+
+        near, far = batch['near'][0].item(), batch['far'][0].item()
+        ray_o, ray_d = rays_flat[..., 0:3], rays_flat[..., 3:6]
+        N_rays = ray_o.shape[0]
+
+        step_size = cfg.task_arg.render_step_size
+        transmittance_threshold = cfg.task_arg.transmittance_threshold
+
+        rgb_map = torch.zeros_like(ray_o)
+        depth_map = torch.zeros((N_rays,), device=ray_o.device)
+        acc_map = torch.zeros((N_rays,), device=ray_o.device)
+
+        transmittance = torch.ones((N_rays,), device=ray_o.device)
+        alive = torch.ones((N_rays,), dtype=torch.bool, device=ray_o.device)
+
+        for t in torch.arange(near, far, step_size, device=ray_o.device):
+            if not alive.any():
+                break
+
+            alive_indices = torch.where(alive)[0]
+            alive_o = ray_o[alive_indices]
+            alive_d = ray_d[alive_indices]
+            current_pts = alive_o + t * alive_d
+
+            grid_indices = self.world_to_grid_indices(current_pts)
+            valid_mask = ((grid_indices >= 0) & (grid_indices < self.grid_resolution)).all(dim=-1)
+            occupied_mask = torch.zeros_like(valid_mask, dtype=torch.bool)
+
+            valid_indices = grid_indices[valid_mask]
+            occupied_mask[valid_mask] = self.occupancy_grid[valid_indices[:, 0], valid_indices[:, 1], valid_indices[:, 2]]
+
+            if not occupied_mask.any():
+                continue
+
+            query_mask = occupied_mask
+            query_pts = current_pts[occupied_mask]
+            query_d = alive_d[occupied_mask]
+
+            viewdirs = query_d / torch.norm(query_d, dim=-1, keepdim=True)
+            inputs_for_network = query_pts.unsqueeze(1)
+            
+            raw = self.net(inputs_for_network, viewdirs, 'fine')
+
+            raw = raw.squeeze(1)
+            rgb = torch.sigmoid(raw[..., :3])
+            sigma = torch.nn.functional.relu(raw[..., 3])
+
+            dists = step_size * torch.norm(query_d, dim=-1)
+            alpha = 1. - torch.exp(-sigma * dists)
+
+            query_global_indices = alive_indices[query_mask]
+            current_transmittance = transmittance[query_global_indices]
+            rgb_map[query_global_indices] += current_transmittance.unsqueeze(-1) * alpha.unsqueeze(-1) * rgb
+            acc_map[query_global_indices] += current_transmittance * alpha
+            depth_map[query_global_indices] += current_transmittance * alpha * t
+            transmittance[query_global_indices] *= (1. - alpha)
+
+            dead_mask = transmittance[query_global_indices] < transmittance_threshold
+            alive[query_global_indices[dead_mask]] = False
+
+        if cfg.task_arg.white_bkgd:
+            rgb_map += (1. - acc_map).unsqueeze(-1) * torch.ones_like(rgb_map)
+
+        ender.record()
+        torch.cuda.synchronize()
+        render_time_ms = starter.elapsed_time(ender)
+        render_time_s = render_time_ms / 1000.0
+        
+        print(f"Accelerated Render time: {render_time_s:.4f} seconds")
+
+        return {
+            'rgb_map_f': rgb_map, 
+            'depth_map_f': depth_map, 
+            'acc_map_f': acc_map, 
+            'render_time': render_time_s
+        }
